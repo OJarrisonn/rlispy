@@ -1,3 +1,4 @@
+//! The module for lexer related functions and types.
 use std::{iter::Peekable, str::Chars};
 
 use symbol::Symbol;
@@ -6,8 +7,11 @@ use token::Token;
 pub mod token;
 pub mod symbol;
 
+/// Characters allowed in keywords
 const KEYWORD_CHARS: &'static str = "abcdefghijklmnopqrstuvwxyz0123456789-";
+/// Characters allowed in symbols
 const SYMBOL_CHARS: &'static str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-+*/|<>=!?@#$%";
+/// Characters scapable in strings
 const ESCAPABLE_CHARS: &'static str = "\"ntr\\";
 
 pub fn lex(source: &str) -> Result<Vec<Token>, String> {
