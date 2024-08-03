@@ -48,6 +48,12 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
                     tokens.push(Token::Keyword(kw));
                     chars = rest;
                 },
+                // Parse a character
+                '\\' => {
+                    let (ch, rest) = lex_char(chars)?;
+                    tokens.push(ch);
+                    chars = rest;
+                },
                 // Parse a comment
                 ';' => {
                     while let Some(c) = chars.next() {
@@ -58,7 +64,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
                 },
                 // Parse a number
                 c if ((c == '-' || c == '.') && chars.peek().is_some_and(|c| c.is_numeric())) || c.is_numeric() => {
-                    let (number, rest) = lex_number(chars, c);
+                    let (number, rest) = lex_number(chars, c)?;
                     tokens.push(number);
                     chars = rest;
                 },
@@ -144,7 +150,7 @@ fn lex_string(mut source: Peekable<Chars>) -> Result<(String, Peekable<Chars>), 
     Ok((string, source))
 }
 
-fn lex_number(mut source: Peekable<Chars>, first: char) -> (Token, Peekable<Chars>) {
+fn lex_number(mut source: Peekable<Chars>, first: char) -> Result<(Token, Peekable<Chars>), String> {
     let mut number = first.to_string();
 
     loop {
@@ -161,11 +167,40 @@ fn lex_number(mut source: Peekable<Chars>, first: char) -> (Token, Peekable<Char
         }
     }
 
-    if number.contains('.') {
-        (Token::Float(number.parse().unwrap()), source)
-    } else {
-        (Token::Integer(number.parse().unwrap()), source)
+    if number.chars().filter(|&c| c == '.').count() > 1 {
+        return Err(format!("Invalid number: {}", number));
     }
+
+    let tk = if number.contains('.') {
+        Token::Float(number.parse().unwrap())
+    } else {
+        Token::Integer(number.parse().unwrap())
+    };
+
+    Ok((tk, source))
+}
+
+fn lex_char(mut source: Peekable<Chars>) -> Result<(Token, Peekable<Chars>), String> {
+    let mut ch = String::new();
+
+    while let Some(c) = source.next() {
+        if c == ' ' {
+            break;
+        } else {
+            ch.push(c);
+        }
+    }
+
+    let c = match ch.as_str() {
+        "newline" => '\n',
+        "return" => '\r',
+        "tab" => '\t',
+        "space" => ' ',
+        c if c.len() == 1 => c.chars().next().unwrap(), 
+        _ => return Err(format!("Invalid character: {}", ch)),
+    };
+
+    Ok((Token::Char(c), source))
 }
 
 #[cfg(test)]
@@ -180,7 +215,7 @@ mod tests {
         ];
 
         for (source, first, expected, rest) in sources {
-            let (token, rest_iter) = super::lex_number(source.chars().peekable(), first);
+            let (token, rest_iter) = super::lex_number(source.chars().peekable(), first).unwrap();
             assert_eq!(token, super::Token::Integer(expected));
             assert_eq!(rest_iter.collect::<String>(), rest);
         }
@@ -197,7 +232,7 @@ mod tests {
         ];
 
         for (source, first, expected, rest) in sources {
-            let (token, rest_iter) = super::lex_number(source.chars().peekable(), first);
+            let (token, rest_iter) = super::lex_number(source.chars().peekable(), first).unwrap();
             assert_eq!(token, super::Token::Float(expected));
             assert_eq!(rest_iter.collect::<String>(), rest);
         }
