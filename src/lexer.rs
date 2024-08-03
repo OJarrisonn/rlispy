@@ -1,5 +1,5 @@
 //! The module for lexer related functions and types.
-use std::{iter::Peekable, str::Chars};
+use std::{fmt::{self, Display, Formatter}, iter::Peekable, ops::Index, str::{CharIndices, Chars}};
 
 use symbol::Symbol;
 use token::Token;
@@ -13,32 +13,119 @@ const KEYWORD_CHARS: &'static str = "abcdefghijklmnopqrstuvwxyz0123456789-";
 const SYMBOL_CHARS: &'static str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-+*/|<>=!?@#$%";
 /// Characters scapable in strings
 const ESCAPABLE_CHARS: &'static str = "\"ntr\\";
+/// Characters that indicate the end of a token
+const TK_END_CHARS: &'static str = " \n\t\r(){}[]\";,";
 
-pub fn lex(source: &str) -> Result<Vec<Token>, String> {
-    let mut tokens = Vec::new();
-    let mut chars = source.chars().peekable();
+pub struct Lexer<'source> {
+    source: &'source str,
+    index: CharIndices<'source>,
+    current: char,
+    current_index: usize,
+    current_line: usize,
+    current_column: usize,
+}
 
-    loop {
-        match chars.next() {
-            None => break,
-            Some(c) => match c {
+pub struct Position {
+    pub line: usize,
+    pub column: usize,
+}
+
+impl<'source> Lexer<'source> {
+    /// Builds a new lexer from a source string.
+    pub fn new(source: &'source str) -> Self {
+        let mut index = source.char_indices(); 
+        let (i, c) = index.next().unwrap_or((0, '\0'));
+
+        Self {
+            source, // TODO: Remove \r
+            current: c,
+            current_index: i,
+            index,
+            current_line: 1,
+            current_column: 1,
+        }
+    }
+
+    /// Advances the lexer to the next character.
+    fn advance(&mut self) -> Option<char> {
+        self.index.next().map(|(i, c)| {
+            if c == '\n' {
+                self.current_line += 1;
+                self.current_column = 1;
+            } else {
+                self.current_column += 1;
+            }
+
+            self.current = c;
+            self.current_index = i;
+
+            c
+        })
+    }
+
+    /// Advances the lexer n characters
+    fn advancen(&mut self, n: usize) -> bool {
+        if n == 0 {
+            return true;
+        }
+
+        self.index.nth(n-1).map(|(i, c)| {
+            self.current = c;
+            self.current_index = i;
+            self.current_column += n;
+        }).is_some()
+    }
+
+    #[inline]
+    fn current(&self) -> char {
+        self.current
+    }
+
+    /// Returns the substring from the current character to the n-th character.
+    fn currentn(&self, n: usize) -> &'source str {
+        let end = self.index.clone()
+            .nth(n-1)
+            .map(|(i, _)| i)
+            .unwrap_or(self.source.len());
+
+        &self.source[self.current_index..end]
+    }
+
+    /// Returns the next character without advancing.
+    #[inline]
+    fn peek(&self) -> Option<char> {
+        self.index.clone().next().map(|(_, c)| c)
+    }
+
+    /// Returns the position of the lexer in the source code.
+    #[inline]
+    fn position(&self) -> Position {
+        Position {
+            line: self.current_line,
+            column: self.current_column,
+        }
+    }
+
+    pub fn lex(&mut self) -> Result<Vec<Token>, String> {
+        let mut tokens = Vec::new();
+
+        loop {
+            match self.current {
                 // Skip whitespace
-                c if c.is_whitespace() => continue,
+                c if c.is_whitespace() => { self.advance(); },
                 // Parse a scope start
-                '(' | '{' | '[' => tokens.push(Token::Open(c)),
+                '(' | '{' | '[' => tokens.push(Token::Open(self.current)),
                 // Parse a scope end
-                ')' | '}' | ']' => tokens.push(Token::Close(c)),
+                ')' | '}' | ']' => tokens.push(Token::Close(self.current)),
                 // Parse a string
                 '"' => {
-                    let (string, rest) = lex_string(chars)?;
-                    tokens.push(Token::String(string));
-                    chars = rest;
+                    let string = self.lex_string()?;
+                    tokens.push(string);
                 },
                 // Parse a keyword
                 ':' => {
-                    let (kw, rest) = lex_keyword(chars);
-                    tokens.push(Token::Keyword(kw));
-                    chars = rest;
+                    let kw = self.lex_keyword()?;
+                    tokens.push(kw);
                 },
                 // Parse a character
                 '\\' => {
@@ -48,9 +135,9 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
                 },
                 // Parse a comment
                 ';' => {
-                    while let Some(c) = chars.next() {
+                    while let Some(c) = self.advance() {
                         if c == '\n' {
-                            break;
+                            self.advance();
                         }
                     }
                 },
@@ -68,11 +155,64 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
                 },
                 // Error on unexpected character
                 _ => return Err(format!("Unexpected character: {}", c)),
+            };
+        }    
+
+        Ok(tokens)
+    }
+
+    /// This expects `current` to be `"`. It will consume the string and return a token.
+    /// The lexer will be at the next character after the closing `"`.
+    fn lex_string(&mut self) -> Result<Token, String> {
+        let mut string = String::new();
+        //let start = self.position();
+
+        loop {
+            match self.advance() {
+                None => return Err(format!("Unexpected end of input, expected `\"` at {}", self.position())),
+                Some('\\') => match self.advance() {
+                    None => return Err(format!("Unexpected end of input, expected `n`, `t`, `r`, `\\` or `\"` at {}", self.position())),
+                    Some(c) if ESCAPABLE_CHARS.contains(c) => string.push(c),
+                    Some(c) => return Err(format!("Unexpected escape character: {} at {}", c, self.position())),
+                },
+                Some('"') => { self.advance(); break },
+                Some(c) => string.push(c),
             }
         }
-    }    
 
-    Ok(tokens)
+        //let end = self.position();
+
+        Ok(Token::String(string))
+    }
+
+    /// This expects `current` to be `:`. It will consume the keyword and return it.
+    /// The lexer will be at the next character after the keyword.
+    fn lex_keyword(&mut self) -> Result<Token, String> {
+        let mut keyword = String::new();
+    
+        loop {
+            match self.advance() {
+                Some(c) if KEYWORD_CHARS.contains(c) => {
+                    keyword.push(c);
+                },
+                Some(c) if TK_END_CHARS.contains(c) => {
+                    if keyword.is_empty() {
+                        return Err(format!("Empty keyword at {}", self.position()));
+                    }
+                    break;
+                },
+                Some(c) => return Err(format!("Unexpected character: {} at {} while parsing the keyword `:{}`", c, self.position(), keyword)),
+                None => {
+                    if keyword.is_empty() {
+                        return Err(format!("Empty keyword at {}", self.position()));
+                    }
+                    break;
+                },
+            }
+        }
+
+        Ok(Token::Keyword(keyword))
+    }
 }
 
 fn lex_symbol(mut source: Peekable<Chars>, first: char) -> Result<(Symbol, Peekable<Chars>), String> {
@@ -104,42 +244,6 @@ fn lex_symbol(mut source: Peekable<Chars>, first: char) -> Result<(Symbol, Peeka
     let head = parts.remove(0);
 
     Ok((Symbol { head, tail: parts }, source))
-}
-
-fn lex_keyword(mut source: Peekable<Chars>) -> (String, Peekable<Chars>) {
-    let mut keyword = String::new();
-
-    loop {
-        match source.peek() {
-            Some(&c) if KEYWORD_CHARS.contains(c) => {
-                keyword.push(c);
-                source.next();
-            },
-            _ => break,
-        }
-    }
-
-    (keyword, source)
-}
-
-fn lex_string(mut source: Peekable<Chars>) -> Result<(String, Peekable<Chars>), String> {
-    let mut string = String::new();
-
-    loop {
-        match source.next() {
-            None => return Err("Unexpected end of input".to_string()),
-            Some('\\') => match source.next() {
-                None => return Err("Unexpected end of input".to_string()),
-                Some('"') => string.push('"'),
-                Some(c) if ESCAPABLE_CHARS.contains(c) => string.push(c),
-                Some(c) => return Err(format!("Unexpected escape character: {}", c)),
-            },
-            Some('"') => break,
-            Some(c) => string.push(c),
-        }
-    }
-
-    Ok((string, source))
 }
 
 fn lex_number(mut source: Peekable<Chars>, first: char) -> Result<(Token, Peekable<Chars>), String> {
@@ -195,6 +299,12 @@ fn lex_char(mut source: Peekable<Chars>) -> Result<(Token, Peekable<Chars>), Str
     Ok((Token::Char(c), source))
 }
 
+impl Display for Position {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}:{}", self.line, self.column)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -228,5 +338,25 @@ mod tests {
             assert_eq!(token, super::Token::Float(expected));
             assert_eq!(rest_iter.collect::<String>(), rest);
         }
+    }
+
+    #[test]
+    fn sandbox() {
+        let source = "(fóo bar baz)";
+        let mut lexer = super::Lexer::new(source);
+
+        assert_eq!(lexer.current, '(');
+        assert_eq!(lexer.currentn(3), "(fó");
+        assert_eq!(lexer.peek(), Some('f'));
+        assert_eq!(lexer.position(), (1, 1));
+        lexer.advance();
+        assert_eq!(lexer.current, 'f');
+        assert_eq!(lexer.position(), (1, 2));
+        lexer.advancen(3);
+        assert_eq!(lexer.current, ' ');
+        lexer.advance();
+        assert_eq!(lexer.currentn(3), "bar");
+        assert_eq!(lexer.current, 'b');
+        assert_eq!(lexer.peek(), Some('a'));
     }
 }
