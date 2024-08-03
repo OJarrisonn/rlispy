@@ -1,6 +1,6 @@
 use std::{iter::Peekable, str::Chars};
 
-const KEYWORD_CHARS: &'static str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
+const KEYWORD_CHARS: &'static str = "abcdefghijklmnopqrstuvwxyz0123456789-";
 const SYMBOL_CHARS: &'static str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-+*/|<>=!?@#$%^&";
 const ESCAPABLE_CHARS: &'static str = "\"ntr\\";
 
