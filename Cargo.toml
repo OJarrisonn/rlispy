@@ -1,10 +1,10 @@
 [package]
-name = "rubla"
-version = "0.1.0"
+name = "rlispy"
+version = "0.0.2"
 edition = "2021"
 
 [[bin]]
-name = "rubla-parser"
+name = "rubla"
 path = "src/main.rs"
 
 [dependencies]

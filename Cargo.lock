@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "rubla"
-version = "0.1.0"
+name = "rlispy"
+version = "0.0.2"

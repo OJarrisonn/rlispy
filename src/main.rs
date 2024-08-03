@@ -1,4 +1,4 @@
-use rubla::{lexer::lex, parser::parse};
+use rlispy::{lexer::lex, parser::parse};
 
 fn main() {
     let source = r#"
