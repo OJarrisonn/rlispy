@@ -1,6 +1,6 @@
 use std::{iter::Peekable, vec::IntoIter};
 
-use crate::lexer::{Symbol, Token};
+use crate::lexer::{symbol::Symbol, token::Token};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Form {

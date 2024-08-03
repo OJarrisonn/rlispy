@@ -1,26 +1,14 @@
 use std::{iter::Peekable, str::Chars};
 
+use symbol::Symbol;
+use token::Token;
+
+pub mod token;
+pub mod symbol;
+
 const KEYWORD_CHARS: &'static str = "abcdefghijklmnopqrstuvwxyz0123456789-";
 const SYMBOL_CHARS: &'static str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-+*/|<>=!?@#$%";
 const ESCAPABLE_CHARS: &'static str = "\"ntr\\";
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Token {
-    Integer(i64),
-    Float(f64),
-    String(String),
-    Char(char),
-    Symbol(Symbol),
-    Keyword(String),
-    Open(char),
-    Close(char),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Symbol {
-    pub head: String,
-    pub tail: Vec<String>,
-}
 
 pub fn lex(source: &str) -> Result<Vec<Token>, String> {
     let mut tokens = Vec::new();
